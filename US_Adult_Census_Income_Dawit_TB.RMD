@@ -1,0 +1,370 @@
+---
+title: "US Adult Census Income"
+author: "Dawit Tsadik Berhe"
+date: "1/8/2021"
+output: 
+  pdf_document: 
+    toc: yes
+    fig_width: 3
+    fig_height: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Overview
+
+The purpose of this project is to build a model or an algorithm that would predict whether a individual’s income would exceed 50K/year, based on the census data for the individual. It is based on the 1994 Census bureau database (downloaded from https://www.kaggle.com/uciml/adult-census-income). The data-set consists 32,561 observations with 15 variables.
+The data-set was split into two parts – the first part (90% of the data-set) will be used for training and cross-validating the model, while the second part (10%) will be used to test the model developed. I will develop four models – Logistic regression (glm), k-nearest neighbors (knn), Classification Trees (rpart) and Ensembles, and compare the result of the four models.
+
+The report has four sections. In section 2, the data-set will be analyzed to get a better understanding and insight of the various variables and their relationships and effects on the predictions. In section 3, different models will be tested, and their results will be compared. In section 4, overall observations and lesson learned will be discussed.
+
+
+# 2. Analysis and Model development approach
+In this section I will try to explore, clean-up and analysis the data-set to get a better insights and understanding of the data, and examine the effect of the different variables on the predictions.
+
+## 2.1. General data analysis and data validation.
+
+
+```{r, warning=FALSE, message=FALSE}
+#load the required libraries. 
+library(tidyverse)
+library(caret)
+library(dplyr)
+
+#Read the data-set from my repository in github 
+url <- "https://raw.githubusercontent.com/dtsadik/EDX_CYO_Project/d886694086edb3b6110a971f28709f01004c29b5/adult.csv"
+adult<-read_csv(url)
+
+
+#Explore adult data set
+adult %>% as_tibble() 
+colSums(is.na(adult))
+colSums(adult == "?")
+
+```
+
+As it can be seen from script’s output above, the adult data-set has 32,561 observations and 15 variables. Each row contains individual’s census data and an indication whether that individual’s income is more than the 50K/year or not. 
+There are no n/a in any of the columns, but we have few records with “?”. I will clean-up the data after I decide which columns I will keep.
+First I will remove the variables with no or almost no variability, since they will not add value to the prediction. I use nearZero function to identify these columns.
+
+
+```{r, warning=FALSE, message=FALSE}
+adult<-adult[-nearZeroVar(adult)]
+
+```
+
+“education” and “education.num” variables provide the same or similar information, so it doesn’t add value to keep both variables, so I will keep only one variable (education.num). 
+Similarity “marital.status” and “relationship” variables provide the same or similar information, so I will keep “marital.status” and remove “relationship” from the data-set. 
+
+I will keep sex, race, education.num, workclass, occupation, age, marital.status, hours.per.week, income variables in the data-set, and do data clean-up on the new data-set.
+
+
+```{r, warning=FALSE, message=FALSE}
+#keep the following variables.
+adult<-adult%>% select(sex, race, education.num, workclass, occupation, age, marital.status, hours.per.week, income)
+
+#check if we still have "?" in the remaining variables.
+colSums(adult == "?")
+
+#remove records with "?"
+adult<-adult[rowSums(adult == "?")==0,]
+
+adult %>% as_tibble()
+
+all<-length(adult$income)  #total number of the observations
+gt50<- adult %>% filter(income==">50K") %>%  count()  #total number of 50k plus incomes
+gt50Perc<-mean(adult$income==">50K") #percentage of 50k plus incomes in the data-set
+
+```
+
+The cleaned and modified data-set has now 30,718 observations and 9 variables.
+
+
+## 2.2. Analysis of the variables/predictors.
+Here I will analyze the different variables/predictors in the data-set. The general approach I am going to follow is to compare the proportion of a variables in the whole data-set to the proportion of the same variable in the “>50K” data-set, and see if they are over or under-represented in the “>50K” income group when compared to their representation in the whole data-set.
+       \newline
+ 
+
+
+**sex**
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group sex and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(sex_group=sex) %>% summarize(percentage_in_data_set=n()/all)
+
+#group sex and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(sex_group=sex) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+  left_join(tmp1, by = "sex_group") %>% select (sex_group, percentage_in_data_set, percentage_in_gt50K) 
+
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+As it can be seen from the above, men's proportion in the whole data-set is 0.68, while their proportion in the >50K income group is 0.85. So men are over-represented in the ">50K" income group (i.e. more than their proportion in the data-set). The right hand side column provides the proportion to how much they are over-represented in the >50K income group (i.e. proportion in the >50k divided by the proportion in the whole data-set).
+            \newline
+
+
+**race**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group race and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(race_group=race) %>% summarize(percentage_in_data_set=n()/all)
+
+#group race and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(race_group=race) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "race_group") %>% select (race_group, percentage_in_data_set, percentage_in_gt50K) 
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+
+```
+
+Asian-Pac-Islander and White people are over-represented in the ">50K" income group (when compared to their proportion in the whole data-set).
+            \newline
+
+
+**education.num**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group education.num and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(education.num_group=education.num) %>% summarize(percentage_in_data_set=n()/all)
+                         
+#group education.num and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(education.num_group=education.num) %>% summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "education.num_group") %>% select (education.num_group, percentage_in_data_set, percentage_in_gt50K)
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+People with education.num_group of more 10 years are over-represented in the ">50K" income group when compared to their representation in the total data-set.
+                \newline
+    
+
+
+**workclass**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group work classes and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(workclass_group=workclass) %>% summarize(percentage_in_data_set=n()/all)
+                         
+#group work classes and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(workclass_group=workclass) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "workclass_group") %>%select (workclass_group, percentage_in_data_set, percentage_in_gt50K)
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+People in Private workclass are under-represented in the ">50K" income group when compared to their representation in the total data-set.
+            \newline
+
+**occupation**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group occupation and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(occupation_group=occupation) %>% summarize(percentage_in_data_set=n()/all)
+                       
+#group occupation and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(occupation_group=occupation) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "occupation_group") %>% select (occupation_group, percentage_in_data_set, percentage_in_gt50K)
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+Exec-managerial,Prof-specialty,Protective-serv,Tech-support, Sales are over-represented in the ">50K" income group.
+            \newline
+
+
+**age**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group age in 10 years intervals, and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(age_group=round(age/10)*10) %>% summarize(percentage_in_data_set=n()/all)
+
+#group age in 10 years interval, and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(age_group=round(age/10)*10) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+  left_join(tmp1, by = "age_group") %>%  
+  select (age_group, percentage_in_data_set, percentage_in_gt50K ) 
+
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+People in age group 50,40 & 60 (i.e. ages 35-64) are over-represented in the ">50K" income group.
+         \newline
+
+**marital.status**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group marital.status and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(marital.status_group= marital.status) %>% summarize(percentage_in_data_set=n()/all)
+                       
+#group marital.status and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(marital.status_group=marital.status) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "marital.status_group") %>% select (marital.status_group, percentage_in_data_set, percentage_in_gt50K) 
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+People in the Married-AF-spouse & Married-civ-spouse group are over-represented in the ">50K" income group.
+           \newline
+   
+
+**hours.per.week**
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#group hours.per.week and get the proportion of each group in the data-set
+tmp1<-adult %>% group_by(hours.per.week_group=round(hours.per.week/10)*10) %>% summarize(percentage_in_data_set=n()/all)
+                         
+#group hours.per.week and get the proportion of each group in the ">50K" income group; and join it with the above result.
+tmp2<-adult %>% filter(income==">50K") %>% group_by(hours.per.week_group=round(hours.per.week/10)*10) %>%  summarize(percentage_in_gt50K=n()/gt50) %>% 
+left_join(tmp1, by = "hours.per.week_group") %>% select (hours.per.week_group, percentage_in_data_set, percentage_in_gt50K)
+                         
+#print out the result.
+tmp2 %>% mutate(gt50K_over_data_set=percentage_in_gt50K/percentage_in_data_set) %>% arrange(desc(gt50K_over_data_set)) %>% knitr::kable()
+
+```
+
+People in hours.per.week_group of 40 hrs or less (i.e less than 44 hrs) are under-represented in the ">50K" income group.
+
+
+
+
+## 2.3. Model developing approach
+As it can be seen from the analysis in the previous section, all the 8 variables have some effect on the prediction, with some variable's effect being higher than the others. I will include all the 9 variables in the model. 
+I will split the data set into train (90% of the data-set) and test (10% of the data-set). The train data-set will be used for both training and cross-validating the models, while the test will be used to test the final model only. Since the data-set is not very large, I have decided to assign 90% of the data set to the train data-set in order to have enough data for training and cross-validations.  
+
+# 3. Results
+
+In this section we will test and compare the different models.
+
+```{r, warning=FALSE, message=FALSE}
+# Represent the “>50K” income group by “1” and the “<=50” income group by “0”. Also change the variable type to factor.
+adult$income = as.factor(ifelse(adult$income=='>50K',1,0))
+
+#split 90/10 the data-set into adult_train & adult_test data sets.
+set.seed(1, sample.kind="Rounding") 
+adult_test_index <- as.vector(createDataPartition(adult$income, times = 1,
+                                      p = 0.1, list = FALSE))
+adult_train <- adult[-adult_test_index,]
+adult_test <- adult[adult_test_index,]
+
+```
+        \newline
+
+**glm**
+```{r, warning=FALSE, message=FALSE}
+#glm
+fit_glm <- train(income ~ ., method="glm", data=adult_train)
+pred_glm <- predict(fit_glm, adult_test, "raw")
+cm_glm<-confusionMatrix(pred_glm, factor(adult_test$income))
+cm_glm$overall[["Accuracy"]]
+```
+
+As it can be seen from the above, glm provides accuracy of around 0.83.
+         \newline
+
+**knn**
+```{r, warning=FALSE, message=FALSE}
+
+#see what parameter can be tuned in knn.
+modelLookup("knn")
+
+# use 5-fold cross-validation to tune k.
+control <- trainControl(method = "cv", number = 5, p = .9)
+train_knn <- train(income ~ ., method = "knn", data = adult_train, 
+                   tuneGrid = data.frame(k = c(5,7,9,11,13)),
+                   trControl = control)
+
+ggplot(train_knn, highlight = TRUE)
+
+train_knn$bestTune
+
+pred_knn <- predict(train_knn, adult_test, type="raw")
+cm_knn <- confusionMatrix(pred_knn, factor(adult_test$income))  
+cm_knn$overall[["Accuracy"]]
+```
+
+As it can be seen from the above, knn provided accuracy of around 0.82, when k=11.
+           \newline
+
+
+
+**Classification Trees**
+```{r, warning=FALSE, message=FALSE}
+##Classification Trees 
+
+# see what parameters can be tuned in rpart.
+modelLookup("rpart") 
+
+#cross-validate/tune cp
+train_rpart <-  train(income ~ ., data = adult_train,
+                      method = "rpart",
+                      tuneGrid = data.frame(cp = seq(0.0, 0.1, len = 25)))
+
+#get the best cp
+ggplot(train_rpart, highlight = TRUE)
+train_rpart$bestTune
+
+pred_rpart <- predict(train_rpart, adult_test, type="raw")
+cm_rpart <- confusionMatrix(pred_rpart, factor(adult_test$income))
+cm_rpart$overall[["Accuracy"]]
+
+```
+
+As it can be seen from the above, rpart provided accuracy of around 0.82, when cp=0.004166667.
+     \newline
+
+
+**Ensembles**
+Use the predictions from the previous three models and predict like what the 
+majority predicted (i.e. like 2 out 3 model predicted).
+
+```{r, warning=FALSE, message=FALSE}
+## Ensembles
+# predict like the majority
+
+# change the prediction outputs to numeric as we will need to do some calculation
+# on them. 
+pred_glm_num<-as.numeric(as.character(pred_glm))
+pred_knn_num<-as.numeric(as.character(pred_knn))
+pred_rpart_num<-as.numeric(as.character(pred_rpart))
+
+# if at least two models predicts 1 (i.e. sum of three prediction is more than 1), then predict 1.
+pred_ensembles<- 
+ifelse((pred_glm_num + pred_knn_num + pred_rpart_num) > 1, 1, 0) %>% factor(levels = levels(adult_test$income)) 
+cm_ensembles<-confusionMatrix(pred_ensembles, factor(adult_test$income))
+cm_ensembles$overall[["Accuracy"]]
+
+```
+
+Ensembles provided an accuracy of around 0.83 - a little better than the other models.
+     \newline
+
+
+The result from the four models is summarized in the following table.
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#Compare the results from the four models.
+CM_accuracy <- 
+    data_frame(method ="glm", accuracy = cm_glm$overall[["Accuracy"]]) %>%
+  bind_rows(data_frame(method="knn", accuracy = cm_knn$overall[["Accuracy"]] )) %>%
+  bind_rows(data_frame(method="rpart", accuracy = cm_rpart$overall[["Accuracy"]])) %>%
+  bind_rows(data_frame(method="ensembles", accuracy = cm_ensembles$overall[["Accuracy"]]))
+
+```
+```{r, warning=FALSE, message=FALSE}
+# Print out the result from the four models
+CM_accuracy %>% knitr::kable()
+```
+
+
+
+
+# 4. Conclusion
+I was able to build four different models and compare their results. In this particular case, the glm model seem to perform better. If needed, the prediction could have be further improved, by having a larger data-set, by further tuning the model's parameters, and also by implementing more models and build ensembles model on all model's result.  
+
